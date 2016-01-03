@@ -259,26 +259,62 @@ void GenTauDecayID::findSister()
   }
 }
 
-//is tau a status 3 decay product?
-bool GenTauDecayID::tauIsStatus3DecayProduct() const
+//is tau a status 2 decay product?
+bool GenTauDecayID::tauIsStatus2DecayProduct() const
 {
-  std::string fnName("bool GenTauDecayID::tauIsStatus3DecayProduct() const");
+  std::string fnName("bool GenTauDecayID::tauIsStatus2DecayProduct() const");
   bool ret = false;
-  try { ret = isStatus3DecayProduct(TAUPDGID); }
+  try { ret = isStatus2DecayProduct(TAUPDGID); }
   catch (std::string& ex) { throw; }
   return ret;
 }
 
-//is particle a status 3 decay product, optionally only consider particles with given PDG ID
-bool GenTauDecayID::isStatus3DecayProduct(const int PDGID) const
+/*is particle a status 2 decay product (if tau), optionally only consider particles with given PDG 
+  ID*/
+bool GenTauDecayID::isStatus2DecayProduct(const int PDGID) const
 {
-  std::string fnName("bool GenTauDecayID::isStatus3DecayProduct() const");
+  std::string fnName("bool GenTauDecayID::isStatus2DecayProduct() const");
   bool ret = false;
   if (unpacked_) {
     if (validHandle_) {
       reco::GenParticleRef particleRef(pGenParticles_, iTau_);
       ret = (((PDGID == ANY_PDGID) || (fabs(particleRef->pdgId()) == PDGID)) && 
-	     (particleRef->status() == 3)); 
+	     (particleRef->status() == 2)); 
+      bool rightMom = false;
+      std::vector<int>::const_iterator iPDGID = momPDGID_.begin();
+      while ((iPDGID != momPDGID_.end()) && !rightMom) {
+
+	//don't consider mother PDG ID in selection
+	rightMom = (*iPDGID == ANY_PDGID) || 
+
+	  //insure that the mothers of particles with 0 mothers (i.e. the protons) are not accessed
+	  ((particleRef->numberOfMothers() > 0) && 
+
+	   /*require that the 0th mother or grandmother match 1 of these PDG IDs
+	     grandmother covers the status 23 --> status 2 tau decay pattern in Pythia 8
+	     in the case of >1 mother or grandmother, the sister should share both mothers anyway 
+	     so it's enough to just check one of them*/
+	   ((fabs(particleRef->mother()->pdgId()) == fabs(*iPDGID)) || 
+	    (fabs(particleRef->mother()->mother()->pdgId()) == fabs(*iPDGID))));
+	++iPDGID;
+      }
+      ret = ret && rightMom;
+    }
+    else throw errorInvalidGenParticleHandle(fnName);
+  }
+  else throw errorParameterSetNotUnpacked(fnName);
+  return ret;
+}
+
+//does particle have the right mother, optionally only consider particles with given PDG ID
+bool GenTauDecayID::hasRightMother(const int PDGID) const
+{
+  std::string fnName("bool GenTauDecayID::hasRightMother(const int PDGID) const");
+  bool ret = false;
+  if (unpacked_) {
+    if (validHandle_) {
+      reco::GenParticleRef particleRef(pGenParticles_, iTau_);
+      ret = ((PDGID == ANY_PDGID) || (fabs(particleRef->pdgId()) == PDGID));
       bool rightMom = false;
       std::vector<int>::const_iterator iPDGID = momPDGID_.begin();
       while ((iPDGID != momPDGID_.end()) && !rightMom) {
@@ -460,15 +496,66 @@ int GenTauDecayID::sister() const
   int iSister = -1;
   if (validHandle_) {
     reco::GenParticleRef tauRef(pGenParticles_, iTau_);
-    reco::GenParticleRef momRef = tauRef->motherRef();
-    unsigned int iDaughter = 0;
-    while ((iDaughter < momRef->numberOfDaughters()) && (iSister == -1)) {
-      reco::GenParticleRef childRef = momRef->daughterRef(iDaughter);
-      unsigned int childRefKey = childRef.key();
-      if ((childRefKey != iTau_) && (childRef->status() == tauRef->status())) {
-	iSister = childRefKey;
+
+    /*how many generations away from this particle's Pythia mother is the physical mother
+      e.g. generation = 1 ==> physical mother is Pythia mother
+      e.g. generation = 2 ==> physical mother is Pythia grandmother*/
+    unsigned int generation = 0;
+
+    /*one entry per generation
+      specifies the ref keys of the particle's direct Pythia ancestors
+      e.g. a (ref key 20) --> tau (status 23, ref key 40) --> tau (status 2, ref key 106) ==> 
+      ancestorRefKeys[0] = 40, ancestorRefKeys[1] = 20, generation = 2*/
+    std::vector<unsigned int> ancestorRefKeys;
+    ancestorRefKeys.push_back(tauRef.key());
+
+    //get physical mother, not Pythia mother (taus can be their own daughters in Pythia bookkeeping)
+    reco::GenParticleRef momRef = tauRef;
+    while (momRef->pdgId() == tauRef->pdgId()) {
+      momRef = momRef->motherRef();
+      ancestorRefKeys.push_back(momRef.key());
+      ++generation;
+    }
+
+    /*
+      Diagram of the typical decay chain
+
+                                   a           generation = 2
+                                  / \
+                                 /   \
+                                /     \
+                               /       \
+                              /         \
+                             tau       tau     generation = 1 (tau status 23)
+                             / \       /  \
+                            /   \     /    \
+        primary object -->tau gamma tau gamma  generation = 0 (tau status 2)
+                                     |
+                                     |
+                                      -sister we are trying to find
+    */
+
+    unsigned int iGen = generation;
+    reco::GenParticleRefVector daughters(momRef->daughterRefVector());
+    while ((iGen >= 1) && (iSister == -1)) {
+      unsigned int iDaughter = 0;
+      bool foundSisterLine = false;
+      while ((iDaughter < momRef->numberOfDaughters()) && (iSister == -1) && !foundSisterLine) {
+	reco::GenParticleRef childRef = daughters[iDaughter];
+	unsigned int childRefKey = childRef.key();
+	if (((iGen == generation) && (childRefKey != ancestorRefKeys[generation - 1])) || 
+	    ((iGen > 0) && (fabs(childRef->pdgId()) == fabs(momRef->pdgId())))) {
+
+	  momRef = childRef;
+	  if (iGen == 1) iSister = momRef.key();
+	  else {
+	    daughters = momRef->daughterRefVector();
+	    foundSisterLine = true;
+	  }
+	}
+	else ++iDaughter;
       }
-      ++iDaughter;
+      --iGen;
     }
   }
   else throw errorInvalidGenParticleHandle("int GenTauDecayID::sister() const");
@@ -484,30 +571,25 @@ GenTauDecayID::DecayType GenTauDecayID::decayType(const unsigned int iParticle) 
   unsigned int neutrinoPDGID = 0;
   if (validHandle_) {
     reco::GenParticleRef tauRef(pGenParticles_, iParticle);
-    const size_t numDaughters = tauRef->numberOfDaughters();
-    if (numDaughters == 1) {
-      const reco::Candidate* daughter = tauRef->daughter(0);
-      reco::Candidate::const_iterator iDaughter = daughter->begin();
-      while ((iDaughter != daughter->end()) && 
-	     ((leptonPDGID == 0) || (neutrinoPDGID == 0))) {
-	if (leptonPDGID == 0) {
-	  if (((neutrinoPDGID == 0) || (neutrinoPDGID == ENEUTRINOPDGID)) && 
-	      (fabs(iDaughter->pdgId()) == EPDGID)) leptonPDGID = EPDGID;
-	  if (((neutrinoPDGID == 0) || (neutrinoPDGID == MUNEUTRINOPDGID)) && 
-	      (fabs(iDaughter->pdgId()) == MUPDGID)) leptonPDGID = MUPDGID;
-	}
-	if (neutrinoPDGID == 0) {
-	  if (((leptonPDGID == 0) || (leptonPDGID == EPDGID)) && 
-	      (fabs(iDaughter->pdgId()) == ENEUTRINOPDGID)) neutrinoPDGID = ENEUTRINOPDGID;
-	  if (((leptonPDGID == 0) || (leptonPDGID == MUPDGID)) && 
-	      (fabs(iDaughter->pdgId()) == MUNEUTRINOPDGID)) {
-	    neutrinoPDGID = MUNEUTRINOPDGID;
-	  }
-	}
-	++iDaughter;
+    reco::Candidate::const_iterator iDaughter = tauRef->begin();
+    while ((iDaughter != tauRef->end()) && 
+	   ((leptonPDGID == 0) || (neutrinoPDGID == 0))) {
+      if (leptonPDGID == 0) {
+	if (((neutrinoPDGID == 0) || (neutrinoPDGID == ENEUTRINOPDGID)) && 
+	    (fabs(iDaughter->pdgId()) == EPDGID)) leptonPDGID = EPDGID;
+	if (((neutrinoPDGID == 0) || (neutrinoPDGID == MUNEUTRINOPDGID)) && 
+	    (fabs(iDaughter->pdgId()) == MUPDGID)) leptonPDGID = MUPDGID;
       }
+      if (neutrinoPDGID == 0) {
+	if (((leptonPDGID == 0) || (leptonPDGID == EPDGID)) && 
+	    (fabs(iDaughter->pdgId()) == ENEUTRINOPDGID)) neutrinoPDGID = ENEUTRINOPDGID;
+	if (((leptonPDGID == 0) || (leptonPDGID == MUPDGID)) && 
+	    (fabs(iDaughter->pdgId()) == MUNEUTRINOPDGID)) {
+	  neutrinoPDGID = MUNEUTRINOPDGID;
+	}
+      }
+      ++iDaughter;
     }
-    else throw errorUnexpectedNumDaughters(fnName, numDaughters);
   }
   else throw errorInvalidGenParticleHandle(fnName);
   if ((leptonPDGID == 0) || (neutrinoPDGID == 0)) ret = HAD;
@@ -527,8 +609,7 @@ void GenTauDecayID::numChargedAndNeutralHadronsInTauDecay(const reco::GenParticl
        ++iDaughter) {
     reco::GenParticleRef kidRef = momRef->daughterRef(iDaughter);
     const unsigned int absDaughterPDGID = fabs(kidRef->pdgId());
-    if ((absDaughterPDGID == 111) || (countKShort && (absDaughterPDGID == 310)) || 
-	(absDaughterPDGID == 221)) ++nNeutralHadrons;
+    if ((absDaughterPDGID == 111) || (countKShort && (absDaughterPDGID == 310))) ++nNeutralHadrons;
     else if ((absDaughterPDGID == 211) || (absDaughterPDGID == 321)) ++nChargedHadrons;
     else if (kidRef->status() != 1) {
       numChargedAndNeutralHadronsInTauDecay(kidRef, nChargedHadrons, nNeutralHadrons, countKShort);
@@ -546,8 +627,7 @@ reco::PFTau::hadronicDecayMode GenTauDecayID::hadronicDecayType(const unsigned i
   unsigned int nChargedHadrons = 0;
   unsigned int nPi0s = 0;
   if (validHandle_) {
-    numChargedAndNeutralHadronsInTauDecay(reco::GenParticleRef(pGenParticles_, 
-							       iParticle)->daughterRef(0), 
+    numChargedAndNeutralHadronsInTauDecay(reco::GenParticleRef(pGenParticles_, iParticle), 
 					  nChargedHadrons, nPi0s, countKShort);
   }
   else throw errorInvalidGenParticleHandle(fnName);
@@ -586,8 +666,8 @@ GenTauDecayID::numAndP4VisibleDecayProducts(const reco::GenParticleRef& momRef,
     const reco::LeafCandidate::LorentzVector daughterP4 = kidRef->p4();
     const double daughterPT = kidRef->pt();
     if (unpacked_) {
-      if (((absDaughterPDGID == 111) || (countKShort && (absDaughterPDGID == 310)) || 
-	   (absDaughterPDGID == 221)) && (!applyPTCuts || (daughterPT > neutralHadronPTMin_))) {
+      if (((absDaughterPDGID == 111) || (countKShort && (absDaughterPDGID == 310))) && 
+	  (!applyPTCuts || (daughterPT > neutralHadronPTMin_))) {
 	++nNeutralHadrons;
 	p4+=daughterP4;
       }
@@ -598,13 +678,13 @@ GenTauDecayID::numAndP4VisibleDecayProducts(const reco::GenParticleRef& momRef,
       }
       else if ((absDaughterPDGID == EPDGID) && 
 	       (!applyPTCuts || (daughterPT > chargedLeptonPTMin_))) {
-	++nElectrons;
 	p4+=daughterP4;
+	if (fabs(kidRef->motherRef()->pdgId()) == TAUPDGID) ++nElectrons;
       }
       else if ((absDaughterPDGID == MUPDGID) && 
 	       (!applyPTCuts || (daughterPT > chargedLeptonPTMin_))) {
-	++nMuons;
 	p4+=daughterP4;
+	if (fabs(kidRef->motherRef()->pdgId()) == TAUPDGID) ++nMuons;
       }
       else if (kidRef->status() != 1) {
 	p4+=numAndP4VisibleDecayProducts(kidRef, nChargedHadrons, nNeutralHadrons, nElectrons, 
@@ -634,9 +714,7 @@ void GenTauDecayID::decayTypeAndVisibleP4(const unsigned int iParticle,
   unsigned int nMuons = 0;
   if (validHandle_) {
     try {
-      //does the daughterRef(0) cut apply only to taus?
-      visibleP4 = numAndP4VisibleDecayProducts(reco::GenParticleRef(pGenParticles_, 
-								    iParticle)->daughterRef(0), 
+      visibleP4 = numAndP4VisibleDecayProducts(reco::GenParticleRef(pGenParticles_, iParticle), 
 					       nChargedHadrons, nNeutralHadrons, nElectrons, 
 					       nMuons, countKShort, applyPTCuts);
       decayTypePair = decayType(nChargedHadrons, nNeutralHadrons, nElectrons, nMuons);

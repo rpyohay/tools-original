@@ -101,11 +101,15 @@ class GenTauDecayID {
   //find sister
   void findSister();
 
-  //is tau a status 3 decay product?
-  bool tauIsStatus3DecayProduct() const;
+  //is tau a status 2 decay product?
+  bool tauIsStatus2DecayProduct() const;
 
-  //is particle a status 3 decay product, optionally only consider particles with given PDG ID
-  bool isStatus3DecayProduct(const int PDGID = 0) const;
+  /*is particle a status 2 decay product (if tau), optionally only consider particles with given 
+    PDG ID*/
+  bool isStatus2DecayProduct(const int PDGID = 0) const;
+
+  //does particle have the right mother, optionally only consider particles with given PDG ID
+  bool hasRightMother(const int PDGID = 0) const;
 
   //get tau decay type
   DecayType tauDecayType() const;
