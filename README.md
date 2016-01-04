@@ -172,7 +172,7 @@ process.genATauMuSelector = cms.EDFilter(
     )
 ```
 
-Select gen 1-prong tau from a-->tau(-->1-prong)tau(-->3-prong)
+Select gen 1-prong tau from a-->tau(-->1-prong)tau(-->3-prong):
 
 ```python
 ### Choose mother (pseudoscalar a) ###
@@ -183,7 +183,7 @@ ATauTauPSet = cms.PSet(momPDGID = cms.vint32(A_PDGID),
                        chargedLeptonPTMin = cms.double(0.0), #should always be 0.0
                        totalPTMin = cms.double(0.0)) #should always be 0.0
 
-process.genATauMuSelector = cms.EDFilter(
+process.genATau1ProngTau3ProngSelector = cms.EDFilter(
     'GenObjectProducer',
     genParticleTag = cms.InputTag('genParticles'),
     absMatchPDGIDs = cms.vuint32(TAU_PDGID),     #choose a gen tau...
@@ -203,3 +203,42 @@ process.genATauMuSelector = cms.EDFilter(
     makeAllCollections = cms.bool(False) #should always be False
     )
 ```
+
+## GenMatchedRecoObjectProducer
+
+Once the collection of gen particles to match is produced via the GenObjectProducer and a set of reco objects is produced via, for example, MuonRefSelector, GenMatchedRecoObjectProducer is run to select only those reco objects that match the specified gen particles.  Let's say the gen particles to match are produced by a module called genATauMuSelector configured as above, and a reco::MuonRefVector of reco muons with pT > 5 GeV and |eta| < 2.1 are produced according to the following snippet:
+
+```python
+process.recoMuonSelector = cms.EDFilter('MuonRefSelector',
+                                        src = cms.InputTag('muons'),
+                                        cut = cms.string('(pt > 5.0) && (abs(eta) < 2.1)'),
+                                        filter = cms.bool(True)
+                                        )
+```
+
+The gen matching can be done via the following snippet:
+
+```python
+process.genAMuMatchedRecoMuonSelector = cms.EDFilter(
+    'GenMatchedMuonProducer',
+    genParticleTag = cms.InputTag('genParticles'),
+    selectedGenParticleTag = cms.InputTag('genATauMuSelector'), #must be a reco::GenParticleRefVector
+    recoObjTag = cms.InputTag('recoMuonSelector'),              #must be a reco::MuonRefVector
+    baseRecoObjTag = cms.InputTag('muons'),
+    genTauDecayIDPSet = ATauTauPSet,      #need to know the pseudoscalar a mother
+    applyPTCuts = cms.bool(False),        #should always be false
+    countKShort = cms.bool(False),        #should always be false
+    pTRank = cms.int32(ANY_PT_RANK),      #should always be ANY_PT_RANK
+    makeAllCollections = cms.bool(False), #should always be False
+    useGenObjPTRank = cms.bool(True),     #should always be True
+    nOutputColls = cms.uint32(1),         #should always be 1
+    dR = cms.double(0.1),                 #dR criteria for matching
+    minNumGenObjectsToPassFilter = cms.uint32(1) #EDFilter returns true if >=1 gen-matched reco muon is found
+    )
+```
+
+Note that GenMatchedRecoObjectProducer is a template class, with (so far) 3 implementations defined:
+
+* GenMatchedMuonProducer: recoObjTag must refer to a reco::MuonRefVector
+* GenMatchedJetProducer: recoObjTag must refer to a reco::PFJetRefVector
+* GenMatchedTauProducer: recoObjTag must refer to a reco::PFTauRefVector
