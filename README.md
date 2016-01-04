@@ -139,3 +139,67 @@ process.genAMuSelector = cms.EDFilter(
     makeAllCollections = cms.bool(False) #should always be False
     )
 ```
+
+Select gen muon from a-->tau(-->mu)tau(-->had) with pT > 5 GeV and |eta| < 2.1:
+
+```python
+### Choose mother (pseudoscalar a) ###
+
+ATauTauPSet = cms.PSet(momPDGID = cms.vint32(A_PDGID),
+                       chargedHadronPTMin = cms.double(0.0), #should always be 0.0
+                       neutralHadronPTMin = cms.double(0.0), #should always be 0.0
+                       chargedLeptonPTMin = cms.double(0.0), #should always be 0.0
+                       totalPTMin = cms.double(0.0)) #should always be 0.0
+
+process.genATauMuSelector = cms.EDFilter(
+    'GenObjectProducer',
+    genParticleTag = cms.InputTag('genParticles'),
+    absMatchPDGIDs = cms.vuint32(TAU_PDGID),     #choose a gen tau...
+    sisterAbsMatchPDGID = cms.uint32(TAU_PDGID), #...whose sister is another gen tau...
+    genTauDecayIDPSet = ATauTauPSet,             #...and whose mother is a pseudoscalar a
+    primaryTauDecayType = cms.uint32(TAU_MU),    #primary tau decay mode is mu...
+    sisterTauDecayType = cms.uint32(TAU_HAD),    #...sister tau decay mode is hadronic
+    primaryTauPTRank = cms.int32(ANY_PT_RANK),  #should always be ANY_PT_RANK
+    primaryTauHadronicDecayType = cms.int32(TAU_ALL_HAD), #choose TAU_ALL_HAD when the tau decay type is non-hadronic
+    sisterHadronicDecayType = cms.int32(TAU_ALL_HAD),     #choose TAU_ALL_HAD when the tau decay type is hadronic and you want any hadronic mode
+    primaryTauAbsEtaMax = cms.double(2.1),  #|eta| < 2.1 on muon from tau-->mu
+    primaryTauPTMin = cms.double(5.0),      #pT > 5 GeV on muon from tau-->mu
+    countSister = cms.bool(False),          #only put the muon from tau-->mu in the output collection (i.e. the object in the output collection will be the gen particle with |PDG ID| = 13 and status = 1 that is decayed from the tau
+    applyPTCuts = cms.bool(False),          #should always be False
+    countKShort = cms.bool(False),          #should always be False
+    minNumGenObjectsToPassFilter = cms.uint32(1), #EDFilter only returns true if >=1 tau-->mu is found satisfying pT, |eta|, and decay mode cuts
+    makeAllCollections = cms.bool(False) #should always be False
+    )
+```
+
+Select gen 1-prong tau from a-->tau(-->1-prong)tau(-->3-prong)
+
+```python
+### Choose mother (pseudoscalar a) ###
+
+ATauTauPSet = cms.PSet(momPDGID = cms.vint32(A_PDGID),
+                       chargedHadronPTMin = cms.double(0.0), #should always be 0.0
+                       neutralHadronPTMin = cms.double(0.0), #should always be 0.0
+                       chargedLeptonPTMin = cms.double(0.0), #should always be 0.0
+                       totalPTMin = cms.double(0.0)) #should always be 0.0
+
+process.genATauMuSelector = cms.EDFilter(
+    'GenObjectProducer',
+    genParticleTag = cms.InputTag('genParticles'),
+    absMatchPDGIDs = cms.vuint32(TAU_PDGID),     #choose a gen tau...
+    sisterAbsMatchPDGID = cms.uint32(TAU_PDGID), #...whose sister is another gen tau...
+    genTauDecayIDPSet = ATauTauPSet,             #...and whose mother is a pseudoscalar a
+    primaryTauDecayType = cms.uint32(TAU_HAD),   #primary tau decay mode is hadronic...
+    sisterTauDecayType = cms.uint32(TAU_HAD),    #...sister tau decay mode is hadronic
+    primaryTauPTRank = cms.int32(ANY_PT_RANK),  #should always be ANY_PT_RANK
+    primaryTauHadronicDecayType = cms.int32(TAU_1PRONG_0NEUTRAL), #primary tau hadronic decay mode is 1-prong...
+    sisterHadronicDecayType = cms.int32(TAU_3PRONG_0NEUTRAL),     #...sister tau hadronic decay mode is 3-prong
+    primaryTauAbsEtaMax = cms.double(-1.0),
+    primaryTauPTMin = cms.double(-1.0),
+    countSister = cms.bool(False),          #only put the 1-prong tau in the output collection (i.e. the object in the output collection will be the gen particle with |PDG ID| = 15 and status = 2 whose decay products are the tau neutrino and charged hadron
+    applyPTCuts = cms.bool(False),          #should always be False
+    countKShort = cms.bool(False),          #should always be False
+    minNumGenObjectsToPassFilter = cms.uint32(1), #EDFilter only returns true if >=1 tau-->1-prong is found with sister tau-->3-prong
+    makeAllCollections = cms.bool(False) #should always be False
+    )
+```
