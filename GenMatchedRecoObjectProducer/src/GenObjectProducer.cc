@@ -478,7 +478,7 @@ int GenObjectProducer::keyToStore(const unsigned int tauKey,
     unsigned int iDaughter = 0;
     while ((iDaughter < tauRef->numberOfDaughters()) && 
 	   (chargedLeptonDaughterKey == -1)) {
-      reco::GenParticleRef decayProductRef = /*status2DaughterRef*/tauRef->daughterRef(iDaughter);
+      reco::GenParticleRef decayProductRef = tauRef->daughterRef(iDaughter);
       const unsigned int daughterPDGID = fabs(decayProductRef->pdgId());
       if ((daughterPDGID == GenTauDecayID::EPDGID) || 
 	  (daughterPDGID == GenTauDecayID::MUPDGID)) {
